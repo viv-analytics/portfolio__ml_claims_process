@@ -1,0 +1,88 @@
+"""Data loading and preprocessing for the French Motor TPL dataset (freMTPL2).
+
+The dataset covers 678k motor third-party liability policies and is loaded
+directly from OpenML via scikit-learn — no manual download required.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+from sklearn.datasets import fetch_openml
+from sklearn.model_selection import train_test_split
+
+
+# ---------------------------------------------------------------------------
+# Loaders
+# ---------------------------------------------------------------------------
+
+def load_fremtpl2(as_frame: bool = True) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Load freMTPL2 frequency and severity tables from OpenML.
+
+    Returns
+    -------
+    freq : DataFrame  — one row per policy (678k rows, 12 columns)
+    sev  : DataFrame  — one row per individual claim (26k rows, 2 columns)
+    """
+    freq = fetch_openml(data_id=41214, as_frame=as_frame, parser="auto").frame
+    sev = fetch_openml(data_id=41215, as_frame=as_frame, parser="auto").frame
+    return freq, sev
+
+
+def build_claims_dataset(freq: pd.DataFrame, sev: pd.DataFrame) -> pd.DataFrame:
+    """Join frequency and severity tables and engineer core targets.
+
+    Targets created
+    ---------------
+    HasClaim        : int   — binary, did any claim occur? (classification)
+    ClaimFrequency  : float — ClaimNb / Exposure (Poisson target)
+    AvgSeverity     : float — mean claim amount per policy (NaN when no claim)
+    PurePremium     : float — TotalClaimAmount / Exposure (loss cost)
+    """
+    # Aggregate claim amounts per policy
+    sev_agg = (
+        sev.groupby("IDpol")["ClaimAmount"]
+        .agg(TotalClaimAmount="sum", NumClaims="count")
+        .reset_index()
+    )
+
+    df = freq.merge(sev_agg, on="IDpol", how="left")
+    df["TotalClaimAmount"] = df["TotalClaimAmount"].fillna(0.0)
+    df["NumClaims"] = df["NumClaims"].fillna(0).astype(int)
+
+    # Cast core columns
+    df["ClaimNb"] = pd.to_numeric(df["ClaimNb"], errors="coerce").fillna(0).astype(int)
+    df["Exposure"] = pd.to_numeric(df["Exposure"], errors="coerce").clip(lower=1e-6)
+
+    # Targets
+    df["HasClaim"] = (df["ClaimNb"] > 0).astype(int)
+    df["ClaimFrequency"] = df["ClaimNb"] / df["Exposure"]
+    df["AvgSeverity"] = np.where(
+        df["ClaimNb"] > 0, df["TotalClaimAmount"] / df["ClaimNb"], np.nan
+    )
+    df["PurePremium"] = df["TotalClaimAmount"] / df["Exposure"]
+
+    return df
+
+
+# ---------------------------------------------------------------------------
+# Splits
+# ---------------------------------------------------------------------------
+
+def split_dataset(
+    df: pd.DataFrame,
+    target: str,
+    test_size: float = 0.2,
+    random_state: int = 42,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Stratified train/test split (stratify on target for classification)."""
+    stratify = df[target] if df[target].nunique() <= 10 else None
+    train, test = train_test_split(
+        df, test_size=test_size, random_state=random_state, stratify=stratify
+    )
+    return train.reset_index(drop=True), test.reset_index(drop=True)
+
+
+def claims_only(df: pd.DataFrame) -> pd.DataFrame:
+    """Return subset of policies that generated at least one claim."""
+    return df[df["HasClaim"] == 1].reset_index(drop=True)

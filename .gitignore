@@ -1,0 +1,46 @@
+# Python
+*.pyc
+*.pyo
+__pycache__/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Environments
+.venv/
+venv/
+.env
+
+# Data (store raw data locally, never in git)
+data/raw/
+data/processed/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# Reports (generated outputs — figures are tracked for GitHub display)
+reports/figures/*.html
+
+# macOS
+.DS_Store
+
+# IDE / local tool config
+.vscode/
+.idea/
+.claude/
+
+# uv
+uv.lock
+
+# CatBoost training logs
+catboost_info/
+
+# Generated notebook exports
+README.html
+README_files/
