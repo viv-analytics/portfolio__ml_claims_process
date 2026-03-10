@@ -47,12 +47,16 @@ def fit_reserve_models(
     X_eval: np.ndarray,
     y_eval: np.ndarray,
     quantiles: list[float] = RESERVE_QUANTILES,
+    cat_features: list[int] | None = None,
 ) -> dict[float, CatBoostRegressor]:
     """Fit one quantile model per reserve level."""
+    if cat_features is None:
+        cat_features = catboost_cat_indices()
     models = {}
     for q in quantiles:
         m = quantile_model(quantile=q)
-        m.fit(X_train, y_train, eval_set=(X_eval, y_eval), verbose=False)
+        m.fit(X_train, y_train, eval_set=(X_eval, y_eval),
+              cat_features=cat_features, verbose=False)
         models[q] = m
     return models
 

@@ -50,9 +50,16 @@ def create_fraud_proxy_labels(
     return df
 
 
+try:
+    from claims.config import load_config as _load_config
+    _CONTAMINATION_DEFAULT: float = _load_config().fraud.contamination
+except Exception:
+    _CONTAMINATION_DEFAULT = 0.05
+
+
 def compute_anomaly_scores(
     X: np.ndarray,
-    contamination: float = 0.05,
+    contamination: float = _CONTAMINATION_DEFAULT,
     n_estimators: int = 200,
     n_neighbors: int = 20,
     random_state: int = 42,

@@ -7,3 +7,6 @@ Three modules:
 """
 
 __version__ = "0.1.0"
+
+import logging
+logging.getLogger("claims").addHandler(logging.NullHandler())

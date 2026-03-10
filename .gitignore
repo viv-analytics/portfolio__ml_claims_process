@@ -23,6 +23,7 @@ data/processed/
 # MLflow
 mlruns/
 mlartifacts/
+*.db
 
 # Reports (generated outputs — figures are tracked for GitHub display)
 reports/figures/*.html

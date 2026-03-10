@@ -6,6 +6,7 @@ Logistic Regression receives scaled numerics + one-hot categoricals.
 
 from __future__ import annotations
 
+import warnings
 import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
@@ -58,6 +59,16 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     df["YoungDriver"]  = (driv_age < 25).astype(float)
     df["SeniorDriver"] = (driv_age > 70).astype(float)
     df["NewVehicle"]   = (veh_age < 2).astype(float)
+
+    eng_cols = ["log_Density", "DrivAge_sq", "BM_excess", "YoungDriver", "SeniorDriver", "NewVehicle"]
+    nan_count = df[eng_cols].isna().sum().sum()
+    if nan_count > 0:
+        warnings.warn(
+            f"engineer_features: {nan_count} NaN value(s) in engineered columns {eng_cols}. "
+            "Check input for missing or non-numeric values.",
+            UserWarning,
+            stacklevel=2,
+        )
     return df
 
 

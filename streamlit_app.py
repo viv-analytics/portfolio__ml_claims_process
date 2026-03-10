@@ -70,17 +70,34 @@ def _train_models():
     df_train, df_temp = train_test_split(df_pool, test_size=0.333, stratify=df_pool["HasClaim"], random_state=42)
     df_early, df_cal = train_test_split(df_temp, test_size=0.50, stratify=df_temp["HasClaim"], random_state=42)
 
+    from claims.config import load_config
+    cfg = load_config()
+
+    # Cast categoricals to str (category dtype causes CatBoostError with column names)
+    def _cast_cats(Xdf):
+        Xdf = Xdf.copy()
+        for _c in CATEGORICAL_FEATURES:
+            Xdf[_c] = Xdf[_c].astype(str)
+        return Xdf
+
+    X_tr   = _cast_cats(df_train[ALL_ENG])
+    X_early = _cast_cats(df_early[ALL_ENG])
+    X_cal   = _cast_cats(df_cal[ALL_ENG])
+
     cb = CatBoostClassifier(
-        iterations=500, learning_rate=0.05, depth=7,
+        iterations=cfg.catboost.iterations,
+        learning_rate=cfg.catboost.learning_rate,
+        depth=cfg.catboost.depth,
+        l2_leaf_reg=cfg.catboost.l2_leaf_reg,
         auto_class_weights="Balanced", eval_metric="AUC",
         early_stopping_rounds=40, random_seed=42, verbose=0,
     )
     cb.fit(
-        df_train[ALL_ENG], df_train["HasClaim"].values,
-        eval_set=(df_early[ALL_ENG], df_early["HasClaim"].values),
+        X_tr, df_train["HasClaim"].values,
+        eval_set=(X_early, df_early["HasClaim"].values),
         cat_features=CATEGORICAL_FEATURES, verbose=False,
     )
-    beta_cal = calibrate_beta(cb.predict_proba(df_cal[ALL_ENG])[:, 1], df_cal["HasClaim"].values)
+    beta_cal = calibrate_beta(cb.predict_proba(X_cal)[:, 1], df_cal["HasClaim"].values)
 
     # ── Severity model: CatBoost on log1p(AvgSeverity) ───────────────────────
     df_sev = claims_only(df).dropna(subset=["AvgSeverity"])
@@ -88,16 +105,18 @@ def _train_models():
     sev_tr, sev_te = train_test_split(df_sev, test_size=0.2, random_state=42)
     y_log_tr = np.log1p(sev_tr["AvgSeverity"].values)
     y_log_te = np.log1p(sev_te["AvgSeverity"].values)
-    cb_sev = catboost_severity(iterations=300)
+    X_sev_tr = _cast_cats(sev_tr[ALL_ENG])
+    X_sev_te = _cast_cats(sev_te[ALL_ENG])
+    cb_sev = catboost_severity()
     cb_sev.fit(
-        sev_tr[ALL_ENG], y_log_tr,
-        eval_set=(sev_te[ALL_ENG], y_log_te),
+        X_sev_tr, y_log_tr,
+        eval_set=(X_sev_te, y_log_te),
         cat_features=CATEGORICAL_FEATURES, verbose=False,
     )
 
     # ── Portfolio sample for distribution chart (5k calibrated probs) ────────
     sample = df.sample(5_000, random_state=42)
-    s_raw = cb.predict_proba(sample[ALL_ENG])[:, 1]
+    s_raw = cb.predict_proba(_cast_cats(sample[ALL_ENG]))[:, 1]
     portfolio_probs = np.clip(beta_cal.predict(s_raw.reshape(-1, 1)), 0, 1).astype(float)
 
     cat_opts = {
@@ -144,7 +163,7 @@ def _portfolio_chart(cal_prob: float) -> plt.Figure:
 st.title("🚗 Motor Vehicle Claims — ML Decision Support")
 st.caption(
     "French Motor TPL (freMTPL2) · 678k policies · "
-    "CatBoost + Beta calibration · SHAP explainability"
+    "CatBoost (Optuna-tuned: AUC=0.71, Gini=0.42) · Beta calibration · SHAP explainability"
 )
 
 tab_predict, tab_portfolio = st.tabs(["🔮 Predict", "📊 Portfolio Overview"])
@@ -169,6 +188,11 @@ with tab_portfolio:
         ("05_summary.png",           "Results Summary — CatBoost feature importance & metrics"),
         ("06_shap_beeswarm.png",     "SHAP Beeswarm — Global feature impact (500 test samples)"),
         ("06_shap_waterfall.png",    "SHAP Waterfall — Highest-risk prediction breakdown"),
+        ("07_gains_lift_chart.png",  "Gains & Lift — Top-decile lift: 3.1× | Top-20% captures 45% of claims"),
+        ("08_decile_analysis.png",   "Decile Analysis — Full 10-decile breakdown with cumulative capture rate"),
+        ("09_temporal_validation.png", "Temporal Validation — Walk-forward AUC vs random split baseline"),
+        ("10_fraud_gains_lift.png",  "Fraud Gains & Lift — Cost-sensitive model lift by decile"),
+        ("11_optuna_comparison.png", "Optuna Tuning — ΔAUC=+0.0025, ΔGini=+0.0051 vs stock defaults"),
     ]:
         fpath = fig_dir / fname
         if fpath.exists():
@@ -225,9 +249,12 @@ with tab_predict:
                 "Area": area, "Region": region, "VehPower": veh_power,
             }])
             row_eng  = engineer_features(row)
-            raw_prob = float(cb_model.predict_proba(row_eng[ALL_ENG])[:, 1][0])
+            row_X    = row_eng[ALL_ENG].copy()
+            for _c in CATEGORICAL_FEATURES:
+                row_X[_c] = row_X[_c].astype(str)
+            raw_prob = float(cb_model.predict_proba(row_X)[:, 1][0])
             cal_prob = float(np.clip(beta_cal.predict(np.array([[raw_prob]])), 0, 1)[0])
-            sev_est  = float(np.expm1(cb_sev.predict(row_eng[ALL_ENG]))[0])
+            sev_est  = float(np.expm1(cb_sev.predict(row_X))[0])
             exp_loss = cal_prob * sev_est
             lane     = _stp_lane(cal_prob)
 
@@ -272,7 +299,7 @@ with tab_predict:
             try:
                 import shap
                 shap_expl = shap.TreeExplainer(cb_model)
-                sv = shap_expl(row_eng[ALL_ENG])
+                sv = shap_expl(row_X)
                 plt.close("all")  # ensure SHAP starts with a clean figure
                 shap.plots.waterfall(sv[0], max_display=12, show=False)
                 st.pyplot(plt.gcf(), width="stretch")

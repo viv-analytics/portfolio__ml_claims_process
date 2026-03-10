@@ -50,9 +50,10 @@ def random_forest_pipeline(
 
 
 def catboost_classifier(
-    iterations: int = 500,
-    learning_rate: float = 0.05,
-    depth: int = 6,
+    iterations: int = 866,
+    learning_rate: float = 0.088,
+    depth: int = 7,
+    l2_leaf_reg: float = 4.04,
     scale_pos_weight: float | None = None,
     verbose: int = 0,
 ) -> CatBoostClassifier:
@@ -60,6 +61,7 @@ def catboost_classifier(
 
     Notes
     -----
+    Defaults are Optuna-tuned values (50 trials, 300s) — ΔAUC=+0.0025 vs stock defaults.
     Pass X as a pandas DataFrame with raw string categoricals and specify
     ``cat_features=CATEGORICAL_FEATURES`` in the ``.fit()`` call.
     cat_features is intentionally omitted from the constructor to avoid
@@ -74,6 +76,7 @@ def catboost_classifier(
         iterations=iterations,
         learning_rate=learning_rate,
         depth=depth,
+        l2_leaf_reg=l2_leaf_reg,
         eval_metric="AUC",
         random_seed=42,
         verbose=verbose,

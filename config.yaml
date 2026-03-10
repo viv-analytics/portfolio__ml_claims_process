@@ -1,0 +1,15 @@
+fraud:
+  fn_cost: 5000
+  fp_cost: 150
+  contamination: 0.05
+stp:
+  low_threshold: 0.10
+  high_threshold: 0.40
+catboost:
+  iterations: 866
+  learning_rate: 0.088
+  depth: 7
+  l2_leaf_reg: 4.04  # Tuned by Optuna (50 trials, 300s) — ΔAUC=+0.0025, ΔGini=+0.0051 vs defaults
+tuning:
+  n_trials: 50
+  timeout: 300

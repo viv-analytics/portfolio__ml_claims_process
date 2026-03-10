@@ -27,13 +27,15 @@ def gamma_glm_pipeline() -> Pipeline:
 
 
 def catboost_severity(
-    iterations: int = 500,
-    learning_rate: float = 0.05,
-    depth: int = 6,
+    iterations: int = 866,
+    learning_rate: float = 0.088,
+    depth: int = 7,
+    l2_leaf_reg: float = 4.04,
     verbose: int = 0,
 ) -> CatBoostRegressor:
     """CatBoost RMSE regressor for severity, with native categorical support.
 
+    Defaults are Optuna-tuned values (50 trials, 300s).
     Pass cat_features=CATEGORICAL_FEATURES in the .fit() call.
     """
     return CatBoostRegressor(
@@ -41,6 +43,7 @@ def catboost_severity(
         iterations=iterations,
         learning_rate=learning_rate,
         depth=depth,
+        l2_leaf_reg=l2_leaf_reg,
         random_seed=42,
         verbose=verbose,
         early_stopping_rounds=50,
@@ -61,13 +64,15 @@ def poisson_glm_pipeline() -> Pipeline:
 
 
 def catboost_frequency(
-    iterations: int = 500,
-    learning_rate: float = 0.05,
-    depth: int = 6,
+    iterations: int = 866,
+    learning_rate: float = 0.088,
+    depth: int = 7,
+    l2_leaf_reg: float = 4.04,
     verbose: int = 0,
 ) -> CatBoostRegressor:
     """CatBoost Poisson regressor for claim frequency.
 
+    Defaults are Optuna-tuned values (50 trials, 300s).
     Pass cat_features=CATEGORICAL_FEATURES in the .fit() call.
     """
     return CatBoostRegressor(
@@ -75,6 +80,7 @@ def catboost_frequency(
         iterations=iterations,
         learning_rate=learning_rate,
         depth=depth,
+        l2_leaf_reg=l2_leaf_reg,
         random_seed=42,
         verbose=verbose,
         early_stopping_rounds=50,

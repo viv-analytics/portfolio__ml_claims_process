@@ -36,6 +36,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from betacal import BetaCalibration
 from sklearn.calibration import calibration_curve
+from sklearn.isotonic import IsotonicRegression
+from sklearn.linear_model import LogisticRegression
 from venn_abers import VennAbersCalibrator
 
 
@@ -96,6 +98,70 @@ def calibrate_venn_abers(
     return va
 
 
+def calibrate(
+    estimator,
+    X_cal: np.ndarray,
+    y_cal: np.ndarray,
+    method: str = "beta",
+    random_state: int = 42,
+):
+    """Unified calibration dispatcher.
+
+    Parameters
+    ----------
+    estimator : fitted classifier with predict_proba
+    X_cal     : held-out calibration features
+    y_cal     : held-out calibration labels
+    method    : 'beta' | 'venn_abers' | 'sigmoid' | 'isotonic'
+
+    Returns
+    -------
+    Fitted calibrator with predict_proba(X)[:, 1] interface.
+    """
+    if method == "venn_abers":
+        return calibrate_venn_abers(estimator, X_cal, y_cal, random_state=random_state)
+    elif method == "beta":
+        raw_prob = estimator.predict_proba(X_cal)[:, 1]
+        return _ScoreCalibrator(estimator, raw_prob, y_cal, "beta")
+    elif method in ("sigmoid", "isotonic"):
+        raw_prob = estimator.predict_proba(X_cal)[:, 1]
+        return _ScoreCalibrator(estimator, raw_prob, y_cal, method)
+    else:
+        raise ValueError(f"Unknown calibration method '{method}'. "
+                         f"Choose from: 'beta', 'venn_abers', 'sigmoid', 'isotonic'.")
+
+
+class _ScoreCalibrator:
+    """Thin wrapper: calibrates an already-fitted estimator's scores.
+
+    Supports sigmoid (Platt) and isotonic calibration without requiring
+    CalibratedClassifierCV(cv='prefit') which was removed in sklearn 1.4.
+    """
+
+    def __init__(self, estimator, raw_prob: np.ndarray, y_cal: np.ndarray, method: str):
+        self._estimator = estimator
+        self._method = method
+        if method == "isotonic":
+            self._cal = IsotonicRegression(out_of_bounds="clip")
+            self._cal.fit(raw_prob, y_cal)
+        elif method == "beta":
+            self._cal = BetaCalibration(parameters="abm")
+            self._cal.fit(raw_prob.reshape(-1, 1), y_cal)
+        else:  # sigmoid / Platt
+            self._cal = LogisticRegression(C=1e10)
+            self._cal.fit(raw_prob.reshape(-1, 1), y_cal)
+
+    def predict_proba(self, X) -> np.ndarray:
+        raw = self._estimator.predict_proba(X)[:, 1]
+        if self._method == "isotonic":
+            cal = self._cal.predict(raw)
+        elif self._method == "beta":
+            cal = self._cal.predict(raw.reshape(-1, 1))
+        else:
+            cal = self._cal.predict_proba(raw.reshape(-1, 1))[:, 1]
+        return np.column_stack([1 - cal, cal])
+
+
 # ---------------------------------------------------------------------------
 # Evaluation
 # ---------------------------------------------------------------------------
@@ -124,6 +190,7 @@ def plot_reliability_diagram(
     n_bins: int = 10,
     zoom_max: float = 0.30,
     ax: plt.Axes | None = None,
+    figsize: tuple[int, int] | None = None,
 ) -> plt.Axes:
     """Reliability diagram comparing Beta vs Venn-ABERS calibration.
 
@@ -132,7 +199,8 @@ def plot_reliability_diagram(
     probs_dict : {label: (y_true, y_prob)}
     zoom_max   : upper limit for x/y axes (zoom into low-probability region)
     """
-    ax = ax or plt.gca()
+    if ax is None:
+        _, ax = plt.subplots(figsize=figsize or (7, 5))
     colors = {
         "Uncalibrated":  "#999999",
         "Beta":          "#4472C4",

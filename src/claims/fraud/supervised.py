@@ -14,22 +14,30 @@ from catboost import CatBoostClassifier
 from sklearn.metrics import precision_recall_curve
 
 
-# Cost matrix (€ units, illustrative)
-FN_COST = 5_000   # average fraudulent claim paid out
-FP_COST = 150     # investigation cost per false alert
+# Cost matrix (€ units, illustrative) — defaults loaded from config
+try:
+    from claims.config import load_config as _load_config
+    _cfg = _load_config()
+    FN_COST: float = _cfg.fraud.fn_cost
+    FP_COST: float = _cfg.fraud.fp_cost
+except Exception:
+    FN_COST = 5_000   # average fraudulent claim paid out
+    FP_COST = 150     # investigation cost per false alert
 
 
 def cost_sensitive_catboost(
     cat_features: list[str] | None = None,
     fn_cost: float = FN_COST,
     fp_cost: float = FP_COST,
-    iterations: int = 500,
-    learning_rate: float = 0.05,
-    depth: int = 6,
+    iterations: int = 866,
+    learning_rate: float = 0.088,
+    depth: int = 7,
+    l2_leaf_reg: float = 4.04,
     verbose: int = 0,
 ) -> CatBoostClassifier:
     """CatBoost classifier with class weights derived from the cost matrix.
 
+    Defaults are Optuna-tuned values (50 trials, 300s).
     scale_pos_weight = FN_COST / FP_COST encodes the asymmetric cost.
     Pass cat_features=CATEGORICAL_FEATURES in the .fit() call.
     """
@@ -38,6 +46,7 @@ def cost_sensitive_catboost(
         iterations=iterations,
         learning_rate=learning_rate,
         depth=depth,
+        l2_leaf_reg=l2_leaf_reg,
         scale_pos_weight=scale,
         eval_metric="AUC",
         random_seed=42,

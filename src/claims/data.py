@@ -86,3 +86,45 @@ def split_dataset(
 def claims_only(df: pd.DataFrame) -> pd.DataFrame:
     """Return subset of policies that generated at least one claim."""
     return df[df["HasClaim"] == 1].reset_index(drop=True)
+
+
+def temporal_split(
+    df: pd.DataFrame,
+    n_folds: int = 3,
+    id_col: str = "IDpol",
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Time-aware cross-validation using IDpol as a temporal proxy.
+
+    Lower policy IDs correspond to earlier policies (earlier enrollment),
+    making IDpol a reasonable surrogate for time when no date column exists.
+
+    Parameters
+    ----------
+    df      : full dataset (must contain *id_col*)
+    n_folds : number of walk-forward folds (≥ 2)
+    id_col  : column used as time proxy (sorted ascending)
+
+    Returns
+    -------
+    list of (train_idx, test_idx) tuples — positional indices for df.iloc[]
+    Each successive fold extends the training window by one block.
+    """
+    if n_folds < 2:
+        raise ValueError(f"n_folds must be >= 2, got {n_folds}")
+
+    sorted_df = df.sort_values(id_col).reset_index(drop=True)
+    n = len(sorted_df)
+    n_blocks = n_folds + 1
+    block_size = n // n_blocks
+
+    # Build positional blocks; last block absorbs remainder
+    blocks = [list(range(i * block_size, (i + 1) * block_size)) for i in range(n_blocks - 1)]
+    blocks.append(list(range((n_blocks - 1) * block_size, n)))
+
+    folds = []
+    for k in range(n_folds):
+        train_idx = np.concatenate([blocks[i] for i in range(k + 1)])
+        test_idx = np.array(blocks[k + 1])
+        folds.append((train_idx, test_idx))
+
+    return folds
